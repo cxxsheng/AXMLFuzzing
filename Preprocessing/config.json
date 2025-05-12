@@ -1,7 +1,7 @@
 {
   "target": [
-    "/Users/cxxsheng/someFramework/aosp15/framework.apk",
-    "/Users/cxxsheng/someFramework/aosp15/services.apk"
+    "/home/caosheng/someFramework/aosp15/framework.apk",
+    "/home/caosheng/someFramework/aosp15/services.apk"
   ],
-  "androidJarPath": "/Users/cxxsheng/Library/Android/sdk/platforms/android-34/android.jar"
+  "androidJarPath": "/home/caosheng/someFramework/sdk/android-35/android.jar"
 }
