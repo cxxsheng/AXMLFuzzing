@@ -1,0 +1,7 @@
+{
+  "target": [
+    "/Users/cxxsheng/someFramework/aosp15/framework.apk",
+    "/Users/cxxsheng/someFramework/aosp15/services.apk"
+  ],
+  "androidJarPath": "/Users/cxxsheng/Library/Android/sdk/platforms/android-34/android.jar"
+}
