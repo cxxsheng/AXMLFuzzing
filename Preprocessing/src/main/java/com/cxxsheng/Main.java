@@ -1,14 +1,17 @@
 package com.cxxsheng;
 
+import com.cxxsheng.core.SimpleCFGBuilder;
 import soot.*;
 import soot.jimple.toolkits.callgraph.CallGraph;
 import soot.jimple.toolkits.callgraph.Edge;
 import soot.options.Options;
 
-import java.io.IOException;
+
 import java.util.*;
 
 public class Main {
+
+
 
     private static void initializeSoot(Config config) {
         G.reset(); // 先重置Soot环境，防止s多次调用时冲突
@@ -24,9 +27,6 @@ public class Main {
         Options.v().set_allow_phantom_refs(true); // 允许Phantom引用，加速分析且解决缺少依赖类问题
         Options.v().set_whole_program(true);      // 整体程序分析，必须开启才可构建完整调用关系
 
-        // 以下重要选项开启Spark调用关系分析
-        Options.v().setPhaseOption("cg.spark", "enabled:true");
-        Options.v().setPhaseOption("cg", "implicit-entry:true"); // 启用隐式Entry point
 
         // 关闭一些不必要的细节输出
         Options.v().set_keep_line_number(false);
@@ -37,8 +37,6 @@ public class Main {
 
         Scene.v().loadNecessaryClasses();
 
-        // 构建调用图的最关键一步：
-        PackManager.v().runPacks();
     }
 
     private static boolean isAndroidComponent(SootClass sootClass) {
@@ -49,8 +47,9 @@ public class Main {
                 || Scene.v().getActiveHierarchy().isClassSubclassOfIncluding(sootClass, Scene.v().getSootClass("android.content.ContentProvider"));
     }
 
-    public static Map<Integer, Set<SootMethod>> reverseCallHierarchy(String methodSignature, int maxDepth) {
-        CallGraph cg = Scene.v().getCallGraph();
+    public static Map<Integer, Set<SootMethod>> reverseCallHierarchy(String methodSignature,
+                                                                     Map<SootMethod, Set<SootMethod>> reverseCfgEdges,
+                                                                     int maxDepth) {
         SootMethod tgtMethod = Scene.v().grabMethod(methodSignature);
 
         if (tgtMethod == null) {
@@ -73,15 +72,14 @@ public class Main {
 
             for (int i = 0; i < levelSize; i++) {
                 SootMethod currentMethod = queue.poll();
-                Iterator<Edge> edgesInto = cg.edgesInto(currentMethod);
 
-                while (edgesInto.hasNext()) {
-                    Edge edge = edgesInto.next();
-                    SootMethod callerMethod = edge.src();
+                // 使用你构建的 reverse edges 查找调用当前方法的方法（即reverse调用关系）
+                Set<SootMethod> callers = reverseCfgEdges.getOrDefault(currentMethod, Collections.emptySet());
 
+                for (SootMethod callerMethod : callers) {
                     if (visited.add(callerMethod)) {
                         currentLevelMethods.add(callerMethod);
-                        queue.add(callerMethod);  // 放入队列中参与下一层的分析
+                        queue.add(callerMethod);
                     }
                 }
             }
@@ -89,12 +87,14 @@ public class Main {
             if (!currentLevelMethods.isEmpty()) {
                 levelToCallers.put(++currentDepth, currentLevelMethods);
             } else {
-                break;  // 若本层没有发现新的调用者则提前终止
+                break;  // 若这一层找不到更多调用者，则遍历停止
             }
         }
 
         return levelToCallers;
     }
+
+
     public static void main(String[] args) {
         if (args.length != 1) {
             System.out.println("Usage: java -jar Tool.jar config.json");
@@ -106,10 +106,13 @@ public class Main {
 
         initializeSoot(config);
 
+        SimpleCFGBuilder cfgBuilder = new SimpleCFGBuilder(128);
+        cfgBuilder.buildMethodCallGraph();
+
         String methodSignature = "<android.content.res.AssetManager: android.content.res.XmlBlock openXmlBlockAsset(java.lang.String)>";
 
         // 分析最多4层调用关系（根据你的需求可自由调整层数）
-        Map<Integer, Set<SootMethod>> result = reverseCallHierarchy(methodSignature, 12);
+        Map<Integer, Set<SootMethod>> result = reverseCallHierarchy(methodSignature, cfgBuilder.getReverseCfgEdges(), 12);
 
         // 美观地输出分层调用信息
         result.forEach((depth, methods) -> {
