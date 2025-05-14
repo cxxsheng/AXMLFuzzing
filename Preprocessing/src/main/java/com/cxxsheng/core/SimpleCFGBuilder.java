@@ -7,6 +7,9 @@ import soot.Unit;
 import soot.jimple.InvokeExpr;
 import soot.jimple.Stmt;
 
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,14 +30,20 @@ public class SimpleCFGBuilder {
     public void buildMethodCallGraph() {
         ExecutorService executorService = Executors.newFixedThreadPool(this.threadCount);
 
+        List<SootMethod> allMethods = new ArrayList<>();
+
         for (SootClass sootClass : Scene.v().getApplicationClasses()) {
             if (sootClass.isPhantom()) continue;
 
             for (SootMethod method : sootClass.getMethods()) {
                 if (method.isConcrete()) {
-                    executorService.execute(() -> analyzeMethodCalls(method));
+                    allMethods.add(method);
                 }
             }
+        }
+
+        for (SootMethod method : allMethods) {
+            executorService.execute(() -> analyzeMethodCalls(method));
         }
 
         executorService.shutdown();
@@ -68,9 +77,25 @@ public class SimpleCFGBuilder {
             }
         } catch (Exception e) {
             System.err.println("⚠️ Error analyzing method: " + caller.getSignature());
-        }
+            e.printStackTrace(); // 增加详细的异常打印
+	}
     }
 
+    public void dumpAllEdges() {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter("cfg.txt"))) {
+            for (Map.Entry<SootMethod, Set<SootMethod>> entry : cfgEdges.entrySet()) {
+                SootMethod caller = entry.getKey();
+                for (SootMethod callee : entry.getValue()) {
+                    writer.write(caller.getSignature() + " -> " + callee.getSignature() + "\n");
+                }
+            }
+            writer.flush();
+        } catch (IOException e) {
+            System.err.println("⚠️ Error writing CFG edges to file.");
+            e.printStackTrace();
+        }
+    }
+    
     public Map<SootMethod, Set<SootMethod>> getCfgEdges() {
         return cfgEdges;
     }
@@ -79,3 +104,4 @@ public class SimpleCFGBuilder {
         return reverseCfgEdges;
     }
 }
+

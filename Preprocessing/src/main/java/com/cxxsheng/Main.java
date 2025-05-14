@@ -109,12 +109,14 @@ public class Main {
         SimpleCFGBuilder cfgBuilder = new SimpleCFGBuilder(128);
         cfgBuilder.buildMethodCallGraph();
 
-        String methodSignature = "<android.content.res.AssetManager: android.content.res.XmlBlock openXmlBlockAsset(java.lang.String)>";
+	cfgBuilder.dumpAllEdges();
 
-        // 分析最多4层调用关系（根据你的需求可自由调整层数）
-        Map<Integer, Set<SootMethod>> result = reverseCallHierarchy(methodSignature, cfgBuilder.getReverseCfgEdges(), 12);
+        String methodSignature = "<android.content.res.AssetManager: android.content.res.XmlBlock openXmlBlockAsset(int,java.lang.String)>";
 
-        // 美观地输出分层调用信息
+	Map<Integer, Set<SootMethod>> result = reverseCallHierarchy(methodSignature, cfgBuilder.getReverseCfgEdges(), 12);
+	
+	System.out.println("Analysis finished!");
+
         result.forEach((depth, methods) -> {
             System.out.println("🔸 Methods at depth [" + depth + "] calling into lower layers:");
             methods.forEach(method -> System.out.println("   ↳ " + method.getSignature()));
