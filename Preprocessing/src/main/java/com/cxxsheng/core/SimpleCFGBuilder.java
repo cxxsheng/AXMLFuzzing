@@ -1,9 +1,6 @@
 package com.cxxsheng.core;
 
-import soot.Scene;
-import soot.SootClass;
-import soot.SootMethod;
-import soot.Unit;
+import soot.*;
 import soot.jimple.InvokeExpr;
 import soot.jimple.Stmt;
 
@@ -25,8 +22,54 @@ public class SimpleCFGBuilder {
 
     private static final Object sootResolveLock = new Object();
 
+    private static final String[] blacklistPrefixes = {
+            "java.",
+            "javax.",
+            "sun.",
+            "jdk.",
+    };
+
+    private boolean isBlacklistedPackage(SootClass sc) {
+        String pkg = sc.getPackageName();
+        if (pkg == null) return false;
+        for (String prefix : blacklistPrefixes) {
+            if (pkg.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public SimpleCFGBuilder(int threadCount) {
         this.threadCount = threadCount;
+    }
+
+    private List<SootMethod> findConcreteImplementations(SootMethod absMethod) {
+        List<SootMethod> impls = new ArrayList<>();
+        String subSignature = absMethod.getSubSignature();
+        SootClass base = absMethod.getDeclaringClass();
+
+        Hierarchy hierarchy = Scene.v().getActiveHierarchy();
+        Collection<SootClass> candidates;
+
+        if (base.isInterface()) {
+            candidates = hierarchy.getImplementersOf(base);
+        } else {
+            candidates = hierarchy.getSubclassesOf(base);
+        }
+
+        for (SootClass cls : candidates) {
+            if (cls.isInterface() || cls.isPhantom() || cls.isAbstract()) continue;
+            if (isBlacklistedPackage(cls)) continue;
+
+            if (cls.declaresMethod(subSignature)) {
+                SootMethod m = cls.getMethod(subSignature);
+                if (m.isConcrete()) {
+                    impls.add(m);
+                }
+            }
+        }
+        return impls;
     }
 
     public void buildMethodCallGraph() {
@@ -35,6 +78,8 @@ public class SimpleCFGBuilder {
         List<SootMethod> allMethods = new ArrayList<>();
 
         for (SootClass sootClass : Scene.v().getApplicationClasses()) {
+            if (isBlacklistedPackage(sootClass)) continue;
+
             if (sootClass.isPhantom()) continue;
 
             for (SootMethod method : sootClass.getMethods()) {
@@ -71,9 +116,20 @@ public class SimpleCFGBuilder {
                     synchronized (sootResolveLock) {
                        callee = invokeExpr.getMethod();
                     }
-                    cfgEdges.get(caller).add(callee);
-                    reverseCfgEdges.putIfAbsent(callee, Collections.synchronizedSet(new HashSet<>()));
-                    reverseCfgEdges.get(callee).add(caller);
+                    //忽略掉java的方法
+                    if (isBlacklistedPackage(callee.getDeclaringClass()))
+                        continue;
+
+                    List<SootMethod> tgts = new ArrayList<>();
+                    if (callee.isAbstract()){
+                        tgts = findConcreteImplementations(callee);
+                    }else
+                        tgts.add(callee);
+                    for(SootMethod tgt: tgts) {
+                        cfgEdges.get(caller).add(tgt);
+                        reverseCfgEdges.putIfAbsent(tgt, Collections.synchronizedSet(new HashSet<>()));
+                        reverseCfgEdges.get(tgt).add(caller);
+                    }
                 }
             }
         } catch (Exception e) {

@@ -106,7 +106,7 @@ public class Main {
 
         initializeSoot(config);
 
-        SimpleCFGBuilder cfgBuilder = new SimpleCFGBuilder(128);
+        SimpleCFGBuilder cfgBuilder = new SimpleCFGBuilder(16);
         cfgBuilder.buildMethodCallGraph();
 
 	    cfgBuilder.dumpAllEdges();
