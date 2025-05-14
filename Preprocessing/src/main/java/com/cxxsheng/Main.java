@@ -9,6 +9,8 @@ import soot.options.Options;
 
 import java.util.*;
 
+import static com.cxxsheng.Utils.writeCallHierarchyDot;
+
 public class Main {
 
 
@@ -39,57 +41,59 @@ public class Main {
 
     }
 
-
-    public static Set<List<SootMethod>> findFullCallPathsToRoot(
-            SootMethod target,
-            Map<SootMethod, Set<SootMethod>> reverseCfgEdges) {
-
-        Set<List<SootMethod>> resultPaths = Collections.synchronizedSet(new HashSet<>());
-        Set<SootMethod> visited = new HashSet<>();
-
-        dfs(target, reverseCfgEdges, new ArrayList<>(), resultPaths, visited);
-
-        return resultPaths;
+    private static boolean isAndroidComponent(SootClass sootClass) {
+        // 检查 sootClass 的祖先类是否是已知的 Android 组件类
+        return Scene.v().getActiveHierarchy().isClassSubclassOfIncluding(sootClass, Scene.v().getSootClass("android.app.Activity"))
+                || Scene.v().getActiveHierarchy().isClassSubclassOfIncluding(sootClass, Scene.v().getSootClass("android.app.Service"))
+                || Scene.v().getActiveHierarchy().isClassSubclassOfIncluding(sootClass, Scene.v().getSootClass("android.content.BroadcastReceiver"))
+                || Scene.v().getActiveHierarchy().isClassSubclassOfIncluding(sootClass, Scene.v().getSootClass("android.content.ContentProvider"));
     }
 
-    private static void dfs(SootMethod current,
-                            Map<SootMethod, Set<SootMethod>> reverseCfgEdges,
-                            List<SootMethod> path,
-                            Set<List<SootMethod>> resultPaths,
-                            Set<SootMethod> visitedGlobal) {
 
-        path.add(current);
 
-        Set<SootMethod> callers = reverseCfgEdges.get(current);
 
-        if (callers == null || callers.isEmpty()) {
-            // 递归结束，找到一条完整路径
-            resultPaths.add(new ArrayList<>(path));
-        } else {
-            for (SootMethod caller : callers) {
-                if (!path.contains(caller)) { // 避免循环
-                    dfs(caller, reverseCfgEdges, path, resultPaths, visitedGlobal);
+    public static Map<Integer, Set<SootMethod>> reverseCallHierarchy(SootMethod tgtMethod,
+                                                                     Map<SootMethod, Set<SootMethod>> reverseCfgEdges,
+                                                                     int maxDepth) {
+
+
+        Map<Integer, Set<SootMethod>> levelToCallers = new HashMap<>();
+        Set<SootMethod> visited = new HashSet<>();
+        Queue<SootMethod> queue = new LinkedList<>();
+
+        int currentDepth = 0;
+
+        queue.add(tgtMethod);
+        visited.add(tgtMethod);
+
+        while (!queue.isEmpty() && currentDepth < maxDepth) {
+            int levelSize = queue.size();
+            Set<SootMethod> currentLevelMethods = new HashSet<>();
+
+            for (int i = 0; i < levelSize; i++) {
+                SootMethod currentMethod = queue.poll();
+
+                // 使用你构建的 reverse edges 查找调用当前方法的方法（即reverse调用关系）
+                Set<SootMethod> callers = reverseCfgEdges.getOrDefault(currentMethod, Collections.emptySet());
+
+                for (SootMethod callerMethod : callers) {
+                    if (visited.add(callerMethod)) {
+                        currentLevelMethods.add(callerMethod);
+                        queue.add(callerMethod);
+                    }
                 }
             }
-        }
 
-        path.remove(path.size() - 1); // 回溯
-    }
-
-
-
-    public static void printCallStacks(Set<List<SootMethod>> callStacks) {
-        int index = 1;
-        for (List<SootMethod> stack : callStacks) {
-            System.out.println("📌 Call Path #" + index++);
-            ListIterator<SootMethod> iterator = stack.listIterator(stack.size());
-            while (iterator.hasPrevious()) {
-                SootMethod method = iterator.previous();
-                System.out.println("   ↳ " + method.getSignature());
+            if (!currentLevelMethods.isEmpty()) {
+                levelToCallers.put(++currentDepth, currentLevelMethods);
+            } else {
+                break;  // 若这一层找不到更多调用者，则遍历停止
             }
-            System.out.println();
         }
+
+        return levelToCallers;
     }
+
 
     public static void main(String[] args) {
         if (args.length != 1) {
@@ -108,17 +112,19 @@ public class Main {
 	    cfgBuilder.dumpAllEdges();
 
         String methodSignature = "<android.content.res.AssetManager: android.content.res.XmlBlock openXmlBlockAsset(int,java.lang.String)>";
-        SootMethod targetMethod = Scene.v().grabMethod(methodSignature);
 
-        if (targetMethod == null) {
-            System.err.println("❌ Target method not found: " + methodSignature);
-            return;
+        SootMethod tgtMethod = Scene.v().grabMethod(methodSignature);
+
+        if (tgtMethod == null) {
+            System.err.println("⚠️ Method not found: " + methodSignature);
+            return ;
         }
 
-        Set<List<SootMethod>> callPaths = findFullCallPathsToRoot(targetMethod, cfgBuilder.getReverseCfgEdges());
+	    Map<Integer, Set<SootMethod>> result = reverseCallHierarchy(tgtMethod, cfgBuilder.getReverseCfgEdges(), 12);
 
-        System.out.println("✅ Found " + callPaths.size() + " unique call paths to root.");
-        printCallStacks(callPaths);
+        writeCallHierarchyDot(tgtMethod, result, cfgBuilder.getReverseCfgEdges(), "call_hierarchy.dot");
+        System.out.println("Analysis finished!");
+
     }
 
 
