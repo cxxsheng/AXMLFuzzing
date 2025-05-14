@@ -23,6 +23,8 @@ public class SimpleCFGBuilder {
     //逆向: 被谁调用的方法集合
     private final Map<SootMethod, Set<SootMethod>> reverseCfgEdges = Collections.synchronizedMap(new HashMap<>());
 
+    private static final Object sootResolveLock = new Object();
+
     public SimpleCFGBuilder(int threadCount) {
         this.threadCount = threadCount;
     }
@@ -65,19 +67,18 @@ public class SimpleCFGBuilder {
             for (Unit unit : caller.retrieveActiveBody().getUnits()) {
                 if (unit instanceof Stmt && ((Stmt) unit).containsInvokeExpr()) {
                     InvokeExpr invokeExpr = ((Stmt) unit).getInvokeExpr();
-                    SootMethod callee = invokeExpr.getMethod();
-
-                    // 正向调用关系
+                    SootMethod callee;
+                    synchronized (sootResolveLock) {
+                       callee = invokeExpr.getMethod();
+                    }
                     cfgEdges.get(caller).add(callee);
-
-                    // 逆向调用关系（谁调用的callee）
                     reverseCfgEdges.putIfAbsent(callee, Collections.synchronizedSet(new HashSet<>()));
                     reverseCfgEdges.get(callee).add(caller);
                 }
             }
         } catch (Exception e) {
             System.err.println("⚠️ Error analyzing method: " + caller.getSignature());
-            e.printStackTrace(); // 增加详细的异常打印
+            e.printStackTrace();
 	}
     }
 
